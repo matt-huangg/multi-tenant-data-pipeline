@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db.session import init_db
-from app.routes import client, jobs, root
+from app.routes import image_processing, root, text_processing
 
 
 @asynccontextmanager
@@ -18,5 +18,5 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(root.router)
-app.include_router(client.router)
-app.include_router(jobs.router)
+app.include_router(text_processing.router)
+app.include_router(image_processing.router)

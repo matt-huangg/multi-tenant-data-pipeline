@@ -27,22 +27,26 @@ class JobService:
         """Convert a Job ORM instance into a JSON-friendly dict."""
         return {
             "id": job.id,
-            "client_id": job.client_id,
+            "type": job.type,
             "status": job.status,
+            "payload": job.payload,
+            "result": job.result,
+            "error": job.error,
+            "created_at": job.created_at.isoformat() if job.created_at else None,
+            "updated_at": job.updated_at.isoformat() if job.updated_at else None,
         }
 
-    def create_job(self, client_id: int):
-        """Create a new queued job for a client and persist it."""
+    def create_job(self, job_type: str = "test", payload: dict | None = None):
+        """Create a new queued processing job and persist it."""
         with self._session() as db:
-            new_job = Job(client_id=client_id, status="queued")
+            new_job = Job(type=job_type, status="queued", payload=payload)
             db.add(new_job)
             db.commit()
             db.refresh(new_job)
 
             send_message({
-                'event_type': 'test',
-                'job_id': new_job.id,
-                'client_id': client_id
+                "event_type": job_type,
+                "job_id": new_job.id,
             })
             return self._serialize_job(new_job)
 
@@ -60,7 +64,7 @@ class JobService:
             jobs = db.query(Job).order_by(Job.id.desc()).all()
             return [self._serialize_job(job) for job in jobs]
 
-    def process_job(self, job_id: int):
+    def process_job(self, job_id: int, result: dict | None = None, error: str | None = None):
         """Simulate background work for a job and persist the status changes."""
         import time
 
@@ -75,7 +79,15 @@ class JobService:
 
             time.sleep(2)
 
-            job.status = "completed"
+            if error:
+                job.status = "failed"
+                job.error = error
+                job.result = None
+            else:
+                job.status = "completed"
+                job.result = result
+                job.error = None
+
             db.commit()
             db.refresh(job)
             return self._serialize_job(job)
