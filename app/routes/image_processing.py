@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.services.ai_processing import processing_service
+from app.services.jobs import job_service
 
 router = APIRouter(prefix="/image-processing", tags=["image-processing"])
 
@@ -15,4 +15,4 @@ class ImageProcessingRequest(BaseModel):
 @router.post("/")
 def create_image_processing_job(payload: ImageProcessingRequest):
     """Create and queue an image processing job."""
-    return processing_service.create_image_job(payload.image_url)
+    return job_service.create_job(job_type="image", payload={"image_url": payload.image_url})

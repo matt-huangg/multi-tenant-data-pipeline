@@ -3,18 +3,20 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.services.ai_processing import processing_service
 from app.services.jobs import job_service
 
 router = APIRouter(prefix="/text-processing", tags=["text-processing"])
 
+
 class TextProcessingRequest(BaseModel):
     text: str
+
 
 @router.post("/")
 def create_text_processing_job(payload: TextProcessingRequest):
     """Create and queue a text processing job."""
-    return processing_service.create_text_job(payload.text)
+    return job_service.create_job(job_type="text", payload={"text": payload.text})
+
 
 @router.get("/{job_id}")
 def get_text_summary(job_id: int):
