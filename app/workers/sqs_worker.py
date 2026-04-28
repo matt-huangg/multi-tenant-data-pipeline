@@ -28,7 +28,7 @@ def process_message(message):
 
 
 def poll_queue():
-    """Continuously poll SQS and process incoming job messages."""
+    """Continuously poll SQS and process incoming job messages"""
     print('polling triggered')
     while True:
         print('polling')
