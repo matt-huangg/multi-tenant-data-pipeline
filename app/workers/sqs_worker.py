@@ -8,7 +8,7 @@ from app.services.ai_processing import processing_service
 from app.services.sqs import delete_message
 from app.services.sqs import receive_messages
 
-
+# TODO: move this to lambda
 def process_message(message):
     """Apply one SQS message to the persisted job store."""
     body = json.loads(message["Body"])
