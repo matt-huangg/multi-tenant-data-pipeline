@@ -8,7 +8,7 @@ from app.services.ai_processing import processing_service
 from app.services.sqs import delete_message
 from app.services.sqs import receive_messages
 
-# TODO: move this to lambda
+
 def process_message(message):
     """Apply one SQS message to the persisted job store."""
     body = json.loads(message["Body"])
@@ -27,11 +27,19 @@ def process_message(message):
         job_service.process_job(job_id, error=str(exc))
 
 
+def lambda_handler(event, context):
+    """Process messages delivered by an SQS Lambda event source mapping."""
+    for record in event.get("Records", []):
+        process_message({"Body": record["body"]})
+
+    return {"batchItemFailures": []}
+
+
 def poll_queue():
-    """Continuously poll SQS and process incoming job messages"""
-    print('polling triggered')
+    """Continuously poll SQS and process incoming job messages."""
+    print("polling triggered")
     while True:
-        print('polling')
+        print("polling")
         messages = receive_messages(max_messages=5, wait_time_seconds=10)
         if not messages:
             time.sleep(1)

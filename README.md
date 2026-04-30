@@ -31,6 +31,7 @@ app/
   services/                Job, SQS, and processing services
   workers/sqs_worker.py    SQS polling worker
   db/                      SQLAlchemy session, base, and models
+infra/                     Terraform infrastructure definitions
 docker-compose.yaml        API, worker, and PostgreSQL services
 Dockerfile                 Python application image
 requirements.txt           Python dependencies
@@ -107,6 +108,46 @@ Start the worker in another terminal:
 
 ```bash
 python -m app.workers.sqs_worker
+```
+
+## Infrastructure
+
+Terraform configuration lives in `infra/`. The current target shape is:
+
+- VPC with public and private subnets
+- SQS queue plus dead-letter queue
+- RDS PostgreSQL in private subnets
+- Lambda or containerized worker for queued jobs
+- IAM, Secrets Manager, and CloudWatch resources
+
+The project currently uses local Terraform state because it is a solo side
+project. Add an S3 backend later if multiple people, multiple machines, or
+CI/CD need to run Terraform against the same AWS account.
+
+Use an AWS CLI profile or exported credentials before running Terraform:
+
+```bash
+export AWS_PROFILE=ai-processing-app-user
+aws sts get-caller-identity
+```
+
+Run Terraform from the `infra/` directory:
+
+```bash
+python3 scripts/prepare_lambda_source.py
+cd infra
+terraform init
+terraform fmt
+terraform validate
+terraform plan
+```
+
+The defaults in `infra/variables.tf` are enough for the dev side-project setup.
+If overrides are needed, copy the example file:
+
+```bash
+cp tfvars/dev.tfvars.example tfvars/dev.tfvars
+terraform plan -var-file=tfvars/dev.tfvars
 ```
 
 ## API Endpoints

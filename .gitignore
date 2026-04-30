@@ -3,11 +3,13 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+build/
 
 # Terraform
 *.tfstate
 *.tfstate.*
 *.tfplan
 .terraform/
+infra/builds/
 *.tfvars
 !*.tfvars.example
