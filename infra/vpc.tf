@@ -1,11 +1,18 @@
-# TODO: Add VPC and subnets.
+module "vpc" {
+    source = "terraform-aws-modules/vpc/aws"
+    version = "~> 5.0"
 
-# resource "aws_vpc" "this" {
-#   cidr_block           = var.vpc_cidr
-#   enable_dns_hostnames = true
-#   enable_dns_support   = true
-#
-#   tags = {
-#     Name = local.name_prefix
-#   }
-# }
+    name = var.project_name
+    cidr = var.vpc_cidr
+
+    azs = ["us-west-2a", "us-west-2b"]
+    private_subnets = var.private_subnet_cidrs
+    public_subnets = var.public_subnet_cidrs
+
+    enable_nat_gateway = false
+    enable_vpn_gateway = false
+
+    tags = {
+        Name = local.name_prefix
+    }
+}

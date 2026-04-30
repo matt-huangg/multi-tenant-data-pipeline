@@ -8,7 +8,9 @@ terraform {
     }
   }
 
-  # TODO: Add remote state.
+  # This project intentionally uses local state for now because it is a solo
+  # side project. Add an S3 backend when multiple people, machines, or CI/CD
+  # need to run Terraform against the same infrastructure.
   # backend "s3" {
   #   bucket         = ""
   #   key            = ""

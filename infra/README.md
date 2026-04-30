@@ -18,5 +18,13 @@ Terraform scaffold for deploying the AI Content Processor AWS infrastructure.
 terraform init
 terraform fmt
 terraform validate
-terraform plan -var-file=dev.tfvars
+terraform plan
+```
+
+Use `tfvars/dev.tfvars.example` as a template only when you need to override
+the defaults in `variables.tf`.
+
+```bash
+cp tfvars/dev.tfvars.example tfvars/dev.tfvars
+terraform plan -var-file=tfvars/dev.tfvars
 ```

@@ -9,4 +9,5 @@ venv/
 *.tfstate.*
 *.tfplan
 .terraform/
-.terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
