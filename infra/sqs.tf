@@ -1,14 +1,15 @@
-# TODO: Add SQS queue and DLQ.
+module "jobs_queue" {
+  source  = "terraform-aws-modules/sqs/aws"
+  version = "~> 4.0"
 
-# resource "aws_sqs_queue" "jobs_dlq" {
-#   name = "${local.name_prefix}-jobs-dlq"
-# }
-#
-# resource "aws_sqs_queue" "jobs" {
-#   name                       = "${local.name_prefix}-jobs"
-#   visibility_timeout_seconds = 180
-#   redrive_policy             = jsonencode({
-#     deadLetterTargetArn = aws_sqs_queue.jobs_dlq.arn
-#     maxReceiveCount     = 3
-#   })
-# }
+  name = "${local.name_prefix}-jobs"
+
+  fifo_queue = false
+  create_dlq = true
+
+  redrive_policy = {
+    maxReceiveCount = 3
+  }
+
+  tags = local.tags
+}
