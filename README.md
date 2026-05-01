@@ -18,7 +18,8 @@ the queue and updates each job status.
 - FastAPI
 - SQLAlchemy
 - PostgreSQL
-- AWS SQS via boto3
+- AWS SQS, Lambda, RDS, and Secrets Manager
+- Terraform
 - Docker Compose
 
 ## Project Structure
@@ -112,13 +113,21 @@ python -m app.workers.sqs_worker
 
 ## Infrastructure
 
-Terraform configuration lives in `infra/`. The current target shape is:
+Terraform configuration lives in `infra/`. The current dev setup creates:
 
 - VPC with public and private subnets
 - SQS queue plus dead-letter queue
 - RDS PostgreSQL in private subnets
-- Lambda or containerized worker for queued jobs
-- IAM, Secrets Manager, and CloudWatch resources
+- Lambda worker subscribed to SQS
+- Security groups that allow Lambda to reach RDS on PostgreSQL port `5432`
+- Secrets Manager secret container for the OpenAI API key
+- RDS-managed Secrets Manager secret for the database password
+- IAM permissions for SQS, Secrets Manager, and Lambda VPC networking
+
+The Lambda function is attached to private subnets so it can reach private RDS.
+NAT Gateway is disabled in the dev config to avoid the fixed monthly cost. That
+means the deployed Lambda cannot call public internet APIs such as OpenAI until
+NAT Gateway, a NAT instance, or another egress design is added.
 
 The project currently uses local Terraform state because it is a solo side
 project. Add an S3 backend later if multiple people, multiple machines, or
@@ -142,6 +151,12 @@ terraform validate
 terraform plan
 ```
 
+Apply after reviewing the plan:
+
+```bash
+terraform apply
+```
+
 The defaults in `infra/variables.tf` are enough for the dev side-project setup.
 If overrides are needed, copy the example file:
 
@@ -149,6 +164,22 @@ If overrides are needed, copy the example file:
 cp tfvars/dev.tfvars.example tfvars/dev.tfvars
 terraform plan -var-file=tfvars/dev.tfvars
 ```
+
+After the OpenAI secret exists, put the actual value into Secrets Manager
+outside Terraform so the key is not stored in Terraform state:
+
+```bash
+aws secretsmanager put-secret-value \
+  --secret-id "ai-content-processor-dev/openai-api-key" \
+  --secret-string "your-openai-api-key"
+```
+
+RDS password management is handled by AWS because the RDS module uses managed
+master user passwords. The Lambda receives the DB secret ARN, DB host, DB name,
+and DB port as environment variables.
+
+For local development, continue using `.env` and Docker Compose. Do not commit
+real API keys or database passwords.
 
 ## API Endpoints
 
