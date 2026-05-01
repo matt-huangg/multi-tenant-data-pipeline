@@ -39,6 +39,19 @@ module "lambda_function" {
         module.db.db_instance_master_user_secret_arn,
       ]
     }
+
+    vpc_network_interface_access = {
+      effect = "Allow"
+      actions = [
+        "ec2:CreateNetworkInterface",
+        "ec2:DeleteNetworkInterface",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeSubnets",
+        "ec2:AssignPrivateIpAddresses",
+        "ec2:UnassignPrivateIpAddresses",
+      ]
+      resources = ["*"]
+    }
   }
 
   vpc_subnet_ids         = module.vpc.private_subnets
