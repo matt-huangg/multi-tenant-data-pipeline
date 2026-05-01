@@ -28,6 +28,28 @@ module "lambda_function" {
       ]
       resources = [module.jobs_queue.queue_arn]
     }
+
+    secrets_read = {
+      effect = "Allow"
+      actions = [
+        "secretsmanager:GetSecretValue",
+      ]
+      resources = [
+        aws_secretsmanager_secret.openai_api_key.arn,
+        module.db.db_instance_master_user_secret_arn,
+      ]
+    }
+  }
+
+  vpc_subnet_ids         = module.vpc.private_subnets
+  vpc_security_group_ids = [aws_security_group.lambda.id]
+
+  environment_variables = {
+    OPENAI_API_KEY_SECRET_ARN = aws_secretsmanager_secret.openai_api_key.arn
+    DB_SECRET_ARN             = module.db.db_instance_master_user_secret_arn
+    DB_HOST                   = module.db.db_instance_address
+    DB_NAME                   = var.db_name
+    DB_PORT                   = "5432"
   }
 
   tags = local.tags
