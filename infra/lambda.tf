@@ -2,6 +2,27 @@ module "lambda_function" {
   source  = "terraform-aws-modules/lambda/aws"
   version = "~> 7.0"
 
+  # TODO: Add a separate API Lambda for accepting HTTP job requests.
+  # This worker Lambda should stay focused on consuming SQS messages.
+  #
+  # Suggested flow:
+  #   API Gateway -> API Lambda -> SQS -> this worker Lambda
+  #
+  # The API Lambda should:
+  #   - expose a handler such as app.api.jobs.lambda_handler
+  #   - validate and authenticate incoming requests
+  #   - send messages to module.jobs_queue.queue_url
+  #   - return 202 Accepted after enqueueing the job
+  #   - avoid doing long-running AI processing directly in the request path
+  #
+  # Terraform pieces to add later:
+  #   - module "api_lambda" with sqs:SendMessage permission
+  #   - aws_apigatewayv2_api using protocol_type = "HTTP"
+  #   - aws_apigatewayv2_integration using AWS_PROXY to the API Lambda
+  #   - aws_apigatewayv2_route for POST /jobs
+  #   - aws_apigatewayv2_stage, likely "$default" with auto_deploy = true
+  #   - aws_lambda_permission allowing API Gateway to invoke the API Lambda
+  #   - optional auth, throttling, CORS, and job-status routes
   function_name = "${local.name_prefix}-worker"
   description   = "Processes queued AI content jobs from SQS"
   handler       = "app.workers.sqs_worker.lambda_handler"
