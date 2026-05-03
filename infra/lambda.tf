@@ -31,27 +31,9 @@ module "lambda_function_worker" {
   source  = "terraform-aws-modules/lambda/aws"
   version = "~> 7.0"
 
-  # TODO: Add a separate API Lambda for accepting HTTP job requests.
-  # This worker Lambda should stay focused on consuming SQS messages.
-  #
-  # Suggested flow:
-  #   API Gateway -> API Lambda -> SQS -> this worker Lambda
-  #
-  # The API Lambda should:
-  #   - expose a handler such as app.api.jobs.lambda_handler
-  #   - validate and authenticate incoming requests
-  #   - send messages to module.jobs_queue.queue_url
-  #   - return 202 Accepted after enqueueing the job
-  #   - avoid doing long-running AI processing directly in the request path
-  #
-  # Terraform pieces to add later:
-  #   - module "api_lambda" with sqs:SendMessage permission
-  #   - aws_apigatewayv2_api using protocol_type = "HTTP"
-  #   - aws_apigatewayv2_integration using AWS_PROXY to the API Lambda
-  #   - aws_apigatewayv2_route for POST /jobs
-  #   - aws_apigatewayv2_stage, likely "$default" with auto_deploy = true
-  #   - aws_lambda_permission allowing API Gateway to invoke the API Lambda
-  #   - optional auth, throttling, CORS, and job-status routes
+  # TODO: Restore the real SQS worker implementation in app.workers.sqs_worker.
+  # It should process SQS records, update job status in RDS, and return
+  # ReportBatchItemFailures only for messages that should be retried.
   function_name = "${local.name_prefix}-worker"
   description   = "Processes queued AI content jobs from SQS"
   handler       = "app.workers.sqs_worker.lambda_handler"
@@ -106,20 +88,21 @@ module "lambda_function_http" {
   version       = "~> 7.0"
   function_name = "${local.name_prefix}-http"
 
-  # TODO: Replace this worker-oriented description with the API Lambda purpose.
-  # Example: "Accepts HTTP job requests and enqueues them for async processing".
+  # TODO: Replace this worker-oriented description after the HTTP handler is
+  # wired to FastAPI/Mangum.
   description = "Processes queued AI content jobs from SQS"
 
-  # TODO: Point this at an API Lambda handler instead of the SQS worker handler.
-  # Example: "app.api.jobs.lambda_handler".
+  # TODO: Add app/lambda_http.py with `lambda_handler = Mangum(app)` and point
+  # this handler at "app.lambda_http.lambda_handler". Add mangum to
+  # requirements.txt before deploying that change.
   handler     = "app.workers.sqs_worker.lambda_handler"
   runtime     = local.lambda_runtime
   source_path = local.lambda_source_path
 
   attach_policy_statements = true
   policy_statements = merge(local.lambda_common_policy_statements, {
-    # TODO: Add sqs:SendMessage permission for module.jobs_queue.queue_arn
-    # once this Lambda enqueues HTTP job requests.
+    # TODO: Add sqs:SendMessage permission for module.jobs_queue.queue_arn once
+    # the HTTP Lambda creates jobs and enqueues work from FastAPI routes.
     secrets_read = {
       effect = "Allow"
       actions = [
@@ -132,10 +115,12 @@ module "lambda_function_http" {
   vpc_subnet_ids         = module.vpc.private_subnets
   vpc_security_group_ids = [aws_security_group.lambda.id]
 
-  # TODO: Add SQS_QUEUE_URL = module.jobs_queue.queue_url once the API handler
-  # sends accepted jobs to SQS.
+  # TODO: Add SQS_QUEUE_URL = module.jobs_queue.queue_url when the HTTP handler
+  # starts sending accepted jobs to SQS.
   environment_variables = local.lambda_common_environment_variables
 
+  # Allows API Gateway to invoke this Lambda. This creates Lambda resource
+  # policy permissions, not execution-role permissions.
   allowed_triggers = {
     api_gateway = {
       principal  = "apigateway.amazonaws.com"
