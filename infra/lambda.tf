@@ -136,5 +136,14 @@ module "lambda_function_http" {
   # sends accepted jobs to SQS.
   environment_variables = local.lambda_common_environment_variables
 
+  allowed_triggers = {
+    api_gateway = {
+      principal  = "apigateway.amazonaws.com"
+      source_arn = "${module.api_gateway_v2_lambda_http.api_execution_arn}/*/*/*"
+    }
+  }
+
+  create_current_version_allowed_triggers = false
+
   tags = local.tags
 }
