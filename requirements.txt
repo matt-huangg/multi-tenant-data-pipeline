@@ -17,6 +17,7 @@ inflection==0.5.1
 jiter==0.14.0
 jmespath==1.1.0
 load-dotenv==0.1.0
+mangum==0.19.0
 mypy_extensions==1.1.0
 openai==2.32.0
 psycopg2-binary==2.9.12

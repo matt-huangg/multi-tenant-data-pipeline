@@ -1,64 +1,59 @@
-# """SQS polling worker for client jobs."""
-
-# import json
-# import time
-
-# from app.services.jobs import job_service
-# from app.services.ai_processing import processing_service
-# from app.services.sqs import delete_message
-# from app.services.sqs import receive_messages
-
-
-# def process_message(message):
-#     """Apply one SQS message to the persisted job store."""
-#     body = json.loads(message["Body"])
-#     job_id = body.get("job_id")
-#     if job_id is None:
-#         return
-
-#     job = job_service.get_job(job_id)
-#     if job is None:
-#         return
-
-#     try:
-#         result = processing_service.process_job(job)
-#         job_service.process_job(job_id, result=result)
-#     except Exception as exc:
-#         job_service.process_job(job_id, error=str(exc))
-
-
-# def lambda_handler(event, context):
-#     """Process messages delivered by an SQS Lambda event source mapping."""
-#     for record in event.get("Records", []):
-#         process_message({"Body": record["body"]})
-
-#     return {"batchItemFailures": []}
-
-
-# def poll_queue():
-#     """Continuously poll SQS and process incoming job messages."""
-#     print("polling triggered")
-#     while True:
-#         print("polling")
-#         messages = receive_messages(max_messages=5, wait_time_seconds=10)
-#         if not messages:
-#             time.sleep(1)
-#             continue
-
-#         for message in messages:
-#             process_message(message)
-#             delete_message(message["ReceiptHandle"])
-
-
-# if __name__ == "__main__":
-#     poll_queue()
-"""SQS Lambda smoke test."""
+"""SQS worker for queued content processing jobs."""
 
 import json
+import time
+
+from app.services.ai_processing import processing_service
+from app.services.jobs import job_service
+from app.services.sqs import delete_message
+from app.services.sqs import receive_messages
+
+
+def process_message_body(body: str) -> None:
+    """Apply one SQS message body to the persisted job store."""
+    payload = json.loads(body)
+    job_id = payload.get("job_id")
+    if job_id is None:
+        return
+
+    job = job_service.get_job(job_id)
+    if job is None:
+        return
+
+    try:
+        result = processing_service.process_job(job)
+        job_service.process_job(job_id, result=result)
+    except Exception as exc:
+        job_service.process_job(job_id, error=str(exc))
 
 
 def lambda_handler(event, context):
-    print("lambda triggered")
-    print(json.dumps(event))
+    """Process messages delivered by an SQS Lambda event source mapping."""
+    batch_item_failures = []
 
-    return {"batchItemFailures": []}
+    for record in event.get("Records", []):
+        try:
+            process_message_body(record["body"])
+        except Exception:
+            batch_item_failures.append({
+                "itemIdentifier": record["messageId"],
+            })
+
+    return {"batchItemFailures": batch_item_failures}
+
+
+def poll_queue():
+    """Continuously poll SQS and process incoming job messages."""
+    while True:
+        messages = receive_messages(max_messages=5, wait_time_seconds=10)
+        if not messages:
+            time.sleep(1)
+            continue
+
+        for message in messages:
+            process_message_body(message["Body"])
+            delete_message(message["ReceiptHandle"])
+
+
+if __name__ == "__main__":
+    poll_queue()
