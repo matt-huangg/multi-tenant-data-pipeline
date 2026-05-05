@@ -37,7 +37,7 @@ variable "public_subnet_cidrs" {
 variable "enable_nat_gateway" {
   description = "Whether private subnets should use NAT for public internet egress, required for worker calls to OpenAI."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "db_name" {
