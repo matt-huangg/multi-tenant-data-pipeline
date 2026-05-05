@@ -1,137 +1,194 @@
 # AI Content Processor
 
-A FastAPI service that accepts text and image processing jobs, stores them in
-PostgreSQL, and queues background work through AWS SQS. A separate worker polls
-the queue and updates each job status.
+AI Content Processor is a small job-based content processing service. It exposes
+a FastAPI HTTP API for text and image jobs, stores job state in PostgreSQL,
+queues work through SQS, and processes jobs asynchronously in a Lambda worker.
 
-## What It Does
+The deployed architecture is intentionally simple: API requests return quickly
+after creating a queued job, while slower AI processing happens in the
+background.
 
-- Creates text processing jobs from submitted text.
-- Creates image processing jobs from submitted image URLs.
-- Persists jobs, payloads, status, results, and errors in PostgreSQL.
-- Sends queued job IDs to SQS.
-- Runs a worker process that consumes SQS messages and marks jobs as completed.
+## Key Features
+
+- Create text processing jobs from submitted text.
+- Create image processing jobs from submitted image URLs.
+- Persist job payloads, status, results, and errors in PostgreSQL.
+- Queue background work through Amazon SQS.
+- Process queued jobs with an SQS-triggered Lambda worker.
+- Store OpenAI API credentials in AWS Secrets Manager.
+- Use RDS-managed Secrets Manager credentials for the database password.
+- Run the HTTP API through API Gateway, Lambda, FastAPI, and Mangum.
+- Keep Lambda-to-SQS and Lambda-to-Secrets Manager traffic private through VPC
+  endpoints.
+- Emit worker progress and failures to CloudWatch Logs.
+
+## Architecture
+
+```text
+Client
+  |
+  v
+API Gateway HTTP API
+  |
+  v
+HTTP Lambda
+  |
+  v
+FastAPI app
+  |
+  +--> PostgreSQL/RDS: create and read job records
+  |
+  +--> SQS: enqueue job id
+
+SQS
+  |
+  v
+Worker Lambda
+  |
+  +--> PostgreSQL/RDS: load job and update status/result/error
+  |
+  +--> OpenAI API: process text or image payload
+  |
+  +--> CloudWatch Logs: worker progress and exceptions
+```
+
+## Request Flow
+
+1. A client sends a request to `POST /text-processing/` or
+   `POST /image-processing/`.
+2. API Gateway forwards the request to the HTTP Lambda.
+3. Mangum adapts the Lambda event into an ASGI request for FastAPI.
+4. FastAPI creates a `queued` job row in PostgreSQL.
+5. The API sends the job id to SQS and returns the job record to the client.
+6. SQS invokes the worker Lambda.
+7. The worker loads the job, calls OpenAI, and updates the job to `completed`.
+8. If processing fails, the worker stores the error message and marks the job
+   as `failed`.
+9. The client can poll `GET /text-processing/{job_id}` to see job status,
+   result, or error.
 
 ## Tech Stack
 
 - Python 3.13
 - FastAPI
+- Mangum
 - SQLAlchemy
-- PostgreSQL
-- AWS SQS, Lambda, RDS, and Secrets Manager
+- PostgreSQL on Amazon RDS
+- Amazon API Gateway HTTP API
+- AWS Lambda
+- Amazon SQS with a dead-letter queue
+- AWS Secrets Manager
+- AWS VPC, security groups, and interface VPC endpoints
+- CloudWatch Logs
 - Terraform
-- Docker Compose
+- Docker Compose for local development
 
 ## Project Structure
 
 ```text
 app/
   main.py                  FastAPI app entry point
-  config.py                Environment-backed settings
+  lambda_http.py           API Gateway/Lambda adapter for FastAPI
+  config.py                Environment and Secrets Manager-backed settings
   routes/                  HTTP routes
-  services/                Job, SQS, and processing services
-  workers/sqs_worker.py    SQS polling worker
+  services/                Job, SQS, and AI processing services
+  workers/sqs_worker.py    SQS-triggered worker Lambda
   db/                      SQLAlchemy session, base, and models
 infra/                     Terraform infrastructure definitions
-docker-compose.yaml        API, worker, and PostgreSQL services
+scripts/
+  prepare_lambda_source.py Builds the Lambda source tree used by Terraform
+docker-compose.yaml        Local API and PostgreSQL services
 Dockerfile                 Python application image
 requirements.txt           Python dependencies
 ```
 
-## Environment Variables
+## Configuration
 
-Create a `.env` file in the project root.
+The app supports two configuration modes.
+
+For local development, use normal environment variables:
 
 ```env
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ai_content_processor
 AWS_REGION=us-west-2
 SQS_QUEUE_URL=https://sqs.us-west-2.amazonaws.com/YOUR_ACCOUNT/YOUR_QUEUE
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
+OPENAI_API_KEY=your-openai-api-key
 ```
 
-`docker-compose.yaml` sets `DATABASE_URL` automatically for the API and worker:
+For AWS deployment, Terraform passes these Lambda environment variables:
 
 ```env
-DATABASE_URL=postgresql://postgres:postgres@db:5432/ai_content_processor
+DB_SECRET_ARN=<rds-managed-secret-arn>
+DB_HOST=<rds-host>
+DB_NAME=ai_content_processor
+DB_PORT=5432
+SQS_QUEUE_URL=<jobs-queue-url>
+OPENAI_API_KEY_SECRET_ARN=<openai-secret-arn>
 ```
 
-For non-Docker local development, set `DATABASE_URL` yourself.
+The app builds `DATABASE_URL` at runtime from the RDS-managed secret and the DB
+host/name/port values. You do not manually store the database URL or database
+password in `.env`, Terraform variables, or your own Secrets Manager secret for
+the deployed path.
 
-## Run With Docker Compose
+## Secrets
 
-```bash
-docker compose up --build
+RDS manages the database password because Terraform sets:
+
+```hcl
+manage_master_user_password = true
 ```
 
-The API will be available at:
+That creates an AWS-managed database credential secret automatically.
+
+You only need to provide the OpenAI key. Terraform creates the secret container:
 
 ```text
-http://localhost:8000
+ai-content-processor-dev/openai-api-key
 ```
 
-Interactive API docs are available at:
+Put the value into Secrets Manager after the secret exists. Either raw text or
+JSON works:
 
-```text
-http://localhost:8000/docs
+```json
+{
+  "OPENAI_API_KEY": "your-openai-api-key"
+}
 ```
 
-This starts:
-
-- `api`: FastAPI app on port `8000`
-- `db`: PostgreSQL on port `5432`
-- `worker`: SQS polling worker
-
-## Run Locally Without Docker
-
-Start PostgreSQL separately, then install dependencies:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-Set the required environment variables:
-
-```bash
-export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ai_content_processor
-export AWS_REGION=us-west-2
-export SQS_QUEUE_URL=https://sqs.us-west-2.amazonaws.com/YOUR_ACCOUNT/YOUR_QUEUE
-```
-
-Start the API:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Start the worker in another terminal:
-
-```bash
-python -m app.workers.sqs_worker
-```
+Do not commit real API keys, `.env` files, Terraform state, or tfvars files.
 
 ## Infrastructure
 
-Terraform configuration lives in `infra/`. The current dev setup creates:
+Terraform in `infra/` creates the deployed dev environment:
 
 - VPC with public and private subnets
-- SQS queue plus dead-letter queue
+- Optional NAT Gateway for private subnet internet egress
+- Interface VPC endpoints for SQS and Secrets Manager
 - RDS PostgreSQL in private subnets
-- Lambda worker subscribed to SQS
-- Security groups that allow Lambda to reach RDS on PostgreSQL port `5432`
-- Secrets Manager secret container for the OpenAI API key
-- RDS-managed Secrets Manager secret for the database password
-- IAM permissions for SQS, Secrets Manager, and Lambda VPC networking
+- SQS jobs queue and dead-letter queue
+- HTTP Lambda for the FastAPI API
+- Worker Lambda subscribed to SQS
+- API Gateway HTTP API with a default proxy route to the HTTP Lambda
+- Security groups allowing Lambda to reach RDS and VPC endpoints
+- IAM permissions for SQS, Secrets Manager, Lambda VPC networking, and API
+  Gateway invocation
+- CloudWatch log groups managed by the Lambda module with 14-day retention
 
-The Lambda function is attached to private subnets so it can reach private RDS.
-NAT Gateway is disabled in the dev config to avoid the fixed monthly cost. That
-means the deployed Lambda cannot call public internet APIs such as OpenAI until
-NAT Gateway, a NAT instance, or another egress design is added.
+Lambda functions run in private subnets so they can reach private RDS. SQS and
+Secrets Manager are reachable privately through VPC endpoints.
 
-The project currently uses local Terraform state because it is a solo side
-project. Add an S3 backend later if multiple people, multiple machines, or
-CI/CD need to run Terraform against the same AWS account.
+The worker needs public internet egress to call OpenAI. Set this in your tfvars
+file if deployed AI processing should work end to end:
+
+```hcl
+enable_nat_gateway = true
+```
+
+Leaving it `false` keeps the lower-cost dev posture, but worker calls to OpenAI
+will fail with a connectivity error unless another egress design is added.
+
+## Deploy
 
 Use an AWS CLI profile or exported credentials before running Terraform:
 
@@ -140,46 +197,42 @@ export AWS_PROFILE=ai-processing-app-user
 aws sts get-caller-identity
 ```
 
-Run Terraform from the `infra/` directory:
+Prepare the Lambda source tree from the project root:
 
 ```bash
 python3 scripts/prepare_lambda_source.py
+```
+
+Create a dev tfvars file if you need overrides:
+
+```bash
 cd infra
+cp tfvars/dev.tfvars.example tfvars/dev.tfvars
+```
+
+Initialize, validate, and review the Terraform plan:
+
+```bash
 terraform init
-terraform fmt
+terraform fmt -check -recursive
 terraform validate
-terraform plan
+terraform plan -var-file=tfvars/dev.tfvars
 ```
 
 Apply after reviewing the plan:
 
 ```bash
-terraform apply
+terraform apply -var-file=tfvars/dev.tfvars
 ```
 
-The defaults in `infra/variables.tf` are enough for the dev side-project setup.
-If overrides are needed, copy the example file:
+Get the deployed API URL:
 
 ```bash
-cp tfvars/dev.tfvars.example tfvars/dev.tfvars
-terraform plan -var-file=tfvars/dev.tfvars
+terraform output -raw api_endpoint
 ```
 
-After the OpenAI secret exists, put the actual value into Secrets Manager
-outside Terraform so the key is not stored in Terraform state:
-
-```bash
-aws secretsmanager put-secret-value \
-  --secret-id "ai-content-processor-dev/openai-api-key" \
-  --secret-string "your-openai-api-key"
-```
-
-RDS password management is handled by AWS because the RDS module uses managed
-master user passwords. The Lambda receives the DB secret ARN, DB host, DB name,
-and DB port as environment variables.
-
-For local development, continue using `.env` and Docker Compose. Do not commit
-real API keys or database passwords.
+This project currently uses local Terraform state. Add an S3 backend before
+sharing deployments across multiple machines, teammates, or CI/CD.
 
 ## API Endpoints
 
@@ -215,7 +268,7 @@ Request:
 Example:
 
 ```bash
-curl -X POST http://localhost:8000/text-processing/ \
+curl -X POST "$API_URL/text-processing/" \
   -H "Content-Type: application/json" \
   -d '{"text":"Summarize this content"}'
 ```
@@ -229,7 +282,7 @@ GET /text-processing/{job_id}
 Example:
 
 ```bash
-curl http://localhost:8000/text-processing/1
+curl "$API_URL/text-processing/1"
 ```
 
 ### Create an Image Processing Job
@@ -250,7 +303,7 @@ Request:
 Example:
 
 ```bash
-curl -X POST http://localhost:8000/image-processing/ \
+curl -X POST "$API_URL/image-processing/" \
   -H "Content-Type: application/json" \
   -d '{"image_url":"https://example.com/image.jpg"}'
 ```
@@ -259,18 +312,88 @@ curl -X POST http://localhost:8000/image-processing/ \
 
 Jobs are stored in the `jobs` table and move through these statuses:
 
-- `queued`: Created and sent to SQS.
-- `running`: Worker received the SQS message and started processing.
-- `completed`: Worker finished processing successfully.
-- `failed`: Worker finished with an error.
+- `queued`: Created in PostgreSQL and sent to SQS.
+- `running`: Worker started processing the job.
+- `completed`: Worker finished successfully and stored a result.
+- `failed`: Worker caught an error and stored the error message.
 
-The current worker simulates processing and stores an empty result unless a
-caller passes a result or error into the job service.
+The worker logs progress and exceptions to:
 
-## Notes
+```text
+/aws/lambda/ai-content-processor-dev-worker
+```
 
-- `SQS_QUEUE_URL` is required when creating jobs because job creation sends a
-  message to SQS.
-- Database tables are created automatically when the FastAPI app starts.
-- The worker must be running for queued jobs to move to `running` and
-  `completed`.
+The HTTP Lambda logs are in:
+
+```text
+/aws/lambda/ai-content-processor-dev-http
+```
+
+## Test A Deployed Job
+
+After deployment:
+
+```bash
+cd infra
+API_URL=$(terraform output -raw api_endpoint)
+```
+
+Create a text job:
+
+```bash
+curl -X POST "$API_URL/text-processing/" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Test worker logging and error handling"}'
+```
+
+Check the returned job id:
+
+```bash
+curl "$API_URL/text-processing/1"
+```
+
+Replace `1` with the id returned by the create request.
+
+If OpenAI credits are unavailable, the job should eventually become `failed`
+with the provider error stored in the `error` field. The same exception is also
+logged by the worker Lambda in CloudWatch.
+
+## Local Development
+
+Local development can still use Docker Compose or a local Python environment,
+but the deployed AWS path is the primary architecture.
+
+With Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+The local API is available at:
+
+```text
+http://localhost:8000
+```
+
+Interactive API docs are available at:
+
+```text
+http://localhost:8000/docs
+```
+
+Without Docker, start PostgreSQL separately, then:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ai_content_processor
+uvicorn app.main:app --reload
+```
+
+Run the local worker separately only if `SQS_QUEUE_URL` points at a queue you
+want to consume:
+
+```bash
+python3 -m app.workers.sqs_worker
+```
