@@ -34,6 +34,12 @@ variable "public_subnet_cidrs" {
   default     = ["10.40.0.0/24", "10.40.1.0/24"]
 }
 
+variable "enable_nat_gateway" {
+  description = "Whether private subnets should use NAT for public internet egress, required for worker calls to OpenAI."
+  type        = bool
+  default     = false
+}
+
 variable "db_name" {
   description = "Initial PostgreSQL database name."
   type        = string
@@ -50,10 +56,4 @@ variable "db_instance_class" {
   description = "RDS instance class."
   type        = string
   default     = "db.t4g.micro"
-}
-
-variable "lambda_package_path" {
-  description = "Path to the packaged Lambda artifact."
-  type        = string
-  default     = "../build/lambda.zip"
 }

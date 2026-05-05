@@ -7,6 +7,7 @@ locals {
     DB_HOST       = module.db.db_instance_address
     DB_NAME       = var.db_name
     DB_PORT       = "5432"
+    SQS_QUEUE_URL = module.jobs_queue.queue_url
   }
 
   lambda_db_secret_arns = [module.db.db_instance_master_user_secret_arn]
@@ -31,14 +32,12 @@ module "lambda_function_worker" {
   source  = "terraform-aws-modules/lambda/aws"
   version = "~> 7.0"
 
-  # TODO: Restore the real SQS worker implementation in app.workers.sqs_worker.
-  # It should process SQS records, update job status in RDS, and return
-  # ReportBatchItemFailures only for messages that should be retried.
-  function_name = "${local.name_prefix}-worker"
-  description   = "Processes queued AI content jobs from SQS"
-  handler       = "app.workers.sqs_worker.lambda_handler"
-  runtime       = local.lambda_runtime
-  source_path   = local.lambda_source_path
+  function_name                     = "${local.name_prefix}-worker"
+  description                       = "Processes queued AI content jobs from SQS"
+  handler                           = "app.workers.sqs_worker.lambda_handler"
+  runtime                           = local.lambda_runtime
+  source_path                       = local.lambda_source_path
+  cloudwatch_logs_retention_in_days = 14
 
   event_source_mapping = {
     jobs_queue = {
@@ -88,21 +87,23 @@ module "lambda_function_http" {
   version       = "~> 7.0"
   function_name = "${local.name_prefix}-http"
 
-  # TODO: Replace this worker-oriented description after the HTTP handler is
-  # wired to FastAPI/Mangum.
-  description = "Processes queued AI content jobs from SQS"
+  description = "Serves the AI content processor HTTP API"
 
-  # TODO: Add app/lambda_http.py with `lambda_handler = Mangum(app)` and point
-  # this handler at "app.lambda_http.lambda_handler". Add mangum to
-  # requirements.txt before deploying that change.
-  handler     = "app.workers.sqs_worker.lambda_handler"
-  runtime     = local.lambda_runtime
-  source_path = local.lambda_source_path
+  handler                           = "app.lambda_http.lambda_handler"
+  runtime                           = local.lambda_runtime
+  source_path                       = local.lambda_source_path
+  cloudwatch_logs_retention_in_days = 14
 
   attach_policy_statements = true
   policy_statements = merge(local.lambda_common_policy_statements, {
-    # TODO: Add sqs:SendMessage permission for module.jobs_queue.queue_arn once
-    # the HTTP Lambda creates jobs and enqueues work from FastAPI routes.
+    jobs_queue_send = {
+      effect = "Allow"
+      actions = [
+        "sqs:SendMessage",
+      ]
+      resources = [module.jobs_queue.queue_arn]
+    }
+
     secrets_read = {
       effect = "Allow"
       actions = [
@@ -115,8 +116,6 @@ module "lambda_function_http" {
   vpc_subnet_ids         = module.vpc.private_subnets
   vpc_security_group_ids = [aws_security_group.lambda.id]
 
-  # TODO: Add SQS_QUEUE_URL = module.jobs_queue.queue_url when the HTTP handler
-  # starts sending accepted jobs to SQS.
   environment_variables = local.lambda_common_environment_variables
 
   # Allows API Gateway to invoke this Lambda. This creates Lambda resource

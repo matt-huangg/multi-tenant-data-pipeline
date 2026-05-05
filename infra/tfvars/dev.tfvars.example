@@ -5,9 +5,8 @@ aws_region   = "us-west-2"
 vpc_cidr             = "10.40.0.0/16"
 public_subnet_cidrs  = ["10.40.0.0/24", "10.40.1.0/24"]
 private_subnet_cidrs = ["10.40.10.0/24", "10.40.11.0/24"]
+enable_nat_gateway   = false
 
 db_name           = "ai_content_processor"
 db_username       = "app_user"
 db_instance_class = "db.t4g.micro"
-
-lambda_package_path = "../build/lambda.zip"

@@ -32,9 +32,8 @@ module "api_gateway_v2_lambda_http" {
     })
   }
 
-  # Routes & Integration(s)
   routes = {
-    "POST /" = {
+    "$default" = {
       integration = {
         uri                    = module.lambda_function_http.lambda_function_arn
         payload_format_version = "2.0"

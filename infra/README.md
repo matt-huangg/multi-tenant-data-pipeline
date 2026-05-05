@@ -11,6 +11,7 @@ Terraform scaffold for deploying the AI Content Processor AWS infrastructure.
 - IAM roles and policies for Lambda
 - Secrets Manager for database credentials or `DATABASE_URL`
 - CloudWatch logs for Lambda
+- Interface VPC endpoints for private Lambda access to SQS and Secrets Manager
 
 ## Local Commands
 
@@ -28,3 +29,13 @@ the defaults in `variables.tf`.
 cp tfvars/dev.tfvars.example tfvars/dev.tfvars
 terraform plan -var-file=tfvars/dev.tfvars
 ```
+
+## Private Lambda Egress
+
+Lambda functions run in private subnets so they can reach RDS. SQS and Secrets
+Manager access stays private through VPC endpoints.
+
+The worker still needs public internet egress to call OpenAI. Set
+`enable_nat_gateway = true` before applying if deployed AI processing should
+work end to end. Leaving it `false` keeps the lower-cost dev posture, but worker
+OpenAI calls will fail without another egress design.

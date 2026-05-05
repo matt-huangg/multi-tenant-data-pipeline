@@ -7,5 +7,3 @@ locals {
     ManagedBy   = "terraform"
   }
 }
-
-# TODO: Wire infrastructure resources together.
