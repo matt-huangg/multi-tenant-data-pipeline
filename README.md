@@ -102,6 +102,30 @@ Dockerfile                 Python application image
 requirements.txt           Python dependencies
 ```
 
+## Lambda Packaging
+
+Terraform packages Lambda from `build/lambda-src`, not directly from `app/`.
+After changing application code, refresh that generated folder before applying:
+
+```bash
+python3 scripts/prepare_lambda_source.py
+```
+
+The Lambda package installs Python dependencies for Amazon Linux:
+
+```bash
+python3 -m pip install --platform manylinux2014_x86_64 \
+  --implementation cp \
+  --python-version 3.13 \
+  --only-binary=:all: \
+  --target=. \
+  -r requirements.txt
+```
+
+This matters when dependencies include compiled wheels such as `pydantic-core`,
+`psycopg2`, or `greenlet`. Wheels installed on macOS are not compatible with the
+Lambda Linux runtime.
+
 ## Configuration
 
 The app supports two configuration modes.
@@ -155,6 +179,15 @@ JSON works:
   "OPENAI_API_KEY": "your-openai-api-key"
 }
 ```
+
+If the secret page says `No secret value set`, Lambda will fail with:
+
+```text
+Secrets Manager can't find the specified secret value for staging label: AWSCURRENT
+```
+
+Click **Set secret value** in the AWS console to create the current secret
+version.
 
 Do not commit real API keys, `.env` files, Terraform state, or tfvars files.
 
@@ -357,6 +390,77 @@ Replace `1` with the id returned by the create request.
 If OpenAI credits are unavailable, the job should eventually become `failed`
 with the provider error stored in the `error` field. The same exception is also
 logged by the worker Lambda in CloudWatch.
+
+For example, a successful infrastructure test with no OpenAI credits will show:
+
+- `Received 1 SQS record(s)`
+- `Processing job <id>`
+- `Failed to process job <id>`
+- `insufficient_quota`
+- `Returning 0 batch item failure(s)`
+
+That means API Gateway, HTTP Lambda, RDS, SQS, worker Lambda, Secrets Manager,
+and OpenAI network access are all wired correctly. The job failed only because
+OpenAI rejected the request.
+
+## Database Access
+
+The RDS instance is private. Lambdas can reach it from inside the VPC, but tools
+on your laptop, such as TablePlus, cannot connect directly.
+
+To inspect the database from TablePlus, use one of these approaches:
+
+- Preferred: create a small EC2 bastion or SSM-managed instance in the VPC and
+  connect through a port-forwarding tunnel.
+- Temporary/dev only: make RDS publicly accessible and allow only your current
+  IP address to port `5432` in the RDS security group.
+
+TablePlus connection details are:
+
+```text
+Host: <terraform output rds_endpoint host>
+Port: 5432
+User: <username from the RDS-managed Secrets Manager secret>
+Password: <password from the RDS-managed Secrets Manager secret>
+Database: <db_name from tfvars>
+SSL mode: require or prefer
+```
+
+Do not open PostgreSQL to `0.0.0.0/0`.
+
+## Destroy And Recreate
+
+Destroy the AWS resources when you are done testing to avoid ongoing charges:
+
+```bash
+cd infra
+AWS_PROFILE=ai-processing-app-user terraform destroy -var-file=tfvars/dev.tfvars
+```
+
+Terraform will show the destroy plan and ask for `yes`.
+
+You can recreate the environment later:
+
+```bash
+cd infra
+python3 ../scripts/prepare_lambda_source.py
+AWS_PROFILE=ai-processing-app-user terraform apply -var-file=tfvars/dev.tfvars
+```
+
+After a destroy/recreate cycle, expect fresh infrastructure:
+
+- RDS data is gone unless you restore from a snapshot.
+- SQS messages are gone.
+- API Gateway URL may change.
+- The OpenAI secret value must be set again.
+- CloudWatch logs may be recreated from scratch.
+
+After destroy, check for leftovers that can still cost money:
+
+- RDS snapshots
+- CloudWatch log groups
+- Secrets Manager secrets scheduled for deletion
+- NAT Gateways, if enabled
 
 ## Local Development
 
