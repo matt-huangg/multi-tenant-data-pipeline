@@ -2,7 +2,7 @@
 
 Local development can provide direct values such as DATABASE_URL and
 OPENAI_API_KEY. Deployed Lambdas receive secret ARNs and database connection
-parts from Terraform, then resolve the final values at import time.
+parts from Terraform, then resolve values when the app first needs them.
 """
 
 import json
@@ -19,6 +19,7 @@ AWS_REGION = os.getenv("AWS_REGION", "us-west-2")
 SQS_QUEUE_URL = os.getenv("SQS_QUEUE_URL", "")
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
+AWS_SESSION_TOKEN = os.getenv("AWS_SESSION_TOKEN")
 
 
 def _build_boto3_client(service_name: str):
@@ -27,6 +28,8 @@ def _build_boto3_client(service_name: str):
     if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
         client_kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID
         client_kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
+        if AWS_SESSION_TOKEN:
+            client_kwargs["aws_session_token"] = AWS_SESSION_TOKEN
 
     return boto3.client(service_name, **client_kwargs)
 
@@ -78,6 +81,10 @@ def _openai_api_key_from_secret() -> str | None:
     return secret.get("OPENAI_API_KEY") or secret.get("api_key")
 
 
+def get_openai_api_key() -> str | None:
+    """Return the OpenAI key from local env or Secrets Manager."""
+    return os.getenv("OPENAI_API_KEY") or _openai_api_key_from_secret()
+
+
 # Direct env vars stay first so local development does not need AWS secrets.
 DATABASE_URL = os.getenv("DATABASE_URL") or _database_url_from_secret()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or _openai_api_key_from_secret()

@@ -9,6 +9,7 @@ from app.config import (
     AWS_ACCESS_KEY_ID,
     AWS_REGION,
     AWS_SECRET_ACCESS_KEY,
+    AWS_SESSION_TOKEN,
     SQS_QUEUE_URL,
 )
 
@@ -19,6 +20,8 @@ def build_sqs_client():
     if AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY:
         client_kwargs["aws_access_key_id"] = AWS_ACCESS_KEY_ID
         client_kwargs["aws_secret_access_key"] = AWS_SECRET_ACCESS_KEY
+        if AWS_SESSION_TOKEN:
+            client_kwargs["aws_session_token"] = AWS_SESSION_TOKEN
 
     return boto3.client("sqs", **client_kwargs)
 
