@@ -65,9 +65,7 @@ class JobService:
             return [self._serialize_job(job) for job in jobs]
 
     def process_job(self, job_id: int, result: dict | None = None, error: str | None = None):
-        """Simulate background work for a job and persist the status changes."""
-        import time
-
+        """Persist the final status for a processed background job."""
         with self._session() as db:
             job = db.query(Job).filter(Job.id == job_id).first()
             if job is None:
@@ -76,8 +74,6 @@ class JobService:
             job.status = "running"
             db.commit()
             db.refresh(job)
-
-            time.sleep(2)
 
             if error:
                 job.status = "failed"

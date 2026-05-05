@@ -50,6 +50,8 @@ module "lambda_function_worker" {
   handler                           = "app.workers.sqs_worker.lambda_handler"
   runtime                           = local.lambda_runtime
   source_path                       = local.lambda_source_path
+  timeout                           = 30
+  memory_size                       = 512
   cloudwatch_logs_retention_in_days = 14
 
   event_source_mapping = {
@@ -106,6 +108,8 @@ module "lambda_function_http" {
   handler                           = "app.lambda_http.lambda_handler"
   runtime                           = local.lambda_runtime
   source_path                       = local.lambda_source_path
+  timeout                           = 30
+  memory_size                       = 512
   cloudwatch_logs_retention_in_days = 14
 
   attach_policy_statements = true
