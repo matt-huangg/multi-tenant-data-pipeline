@@ -1,8 +1,21 @@
 locals {
-  lambda_runtime     = "python3.13"
-  lambda_source_path = "../build/lambda-src"
+  lambda_runtime = "python3.13"
+
+  # The Lambda module packages this generated source tree for both functions.
+  # scripts/prepare_lambda_source.py refreshes ../build/lambda-src from app/.
+  lambda_source_path = [{
+    path = "../build/lambda-src"
+    commands = [
+      # Lambda runs on Amazon Linux x86_64, so compiled packages must use Linux
+      # wheels instead of macOS wheels from the local development machine.
+      "python3 -m pip install --platform manylinux2014_x86_64 --implementation cp --python-version 3.13 --only-binary=:all: --target=. -r requirements.txt",
+      ":zip",
+    ]
+  }]
 
   lambda_common_environment_variables = {
+    # The app builds DATABASE_URL at runtime from the RDS-managed secret and
+    # these non-secret connection details.
     DB_SECRET_ARN = module.db.db_instance_master_user_secret_arn
     DB_HOST       = module.db.db_instance_address
     DB_NAME       = var.db_name
@@ -41,8 +54,9 @@ module "lambda_function_worker" {
 
   event_source_mapping = {
     jobs_queue = {
-      event_source_arn        = module.jobs_queue.queue_arn
-      batch_size              = 1
+      event_source_arn = module.jobs_queue.queue_arn
+      batch_size       = 1
+      # Enables per-message retry reporting through batchItemFailures.
       function_response_types = ["ReportBatchItemFailures"]
     }
   }
@@ -122,8 +136,10 @@ module "lambda_function_http" {
   # policy permissions, not execution-role permissions.
   allowed_triggers = {
     api_gateway = {
-      principal  = "apigateway.amazonaws.com"
-      source_arn = "${module.api_gateway_v2_lambda_http.api_execution_arn}/*/*/*"
+      principal = "apigateway.amazonaws.com"
+      # HTTP API default routes have two path segments after the API id:
+      # stage and route. A three-wildcard REST API pattern will not match.
+      source_arn = "${module.api_gateway_v2_lambda_http.api_execution_arn}/*/*"
     }
   }
 

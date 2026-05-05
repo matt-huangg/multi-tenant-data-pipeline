@@ -1,4 +1,9 @@
-"""SQS worker for queued content processing jobs."""
+"""SQS worker for queued content processing jobs.
+
+The Lambda event source mapping delivers SQS records here. The worker loads the
+persisted job, runs the AI processor, and writes either a result or an error
+back to PostgreSQL.
+"""
 
 import json
 import logging
@@ -15,7 +20,7 @@ logger.setLevel(logging.INFO)
 
 
 def process_message_body(body: str) -> None:
-    """Apply one SQS message body to the persisted job store."""
+    """Process one SQS message body and persist the final job outcome."""
     payload = json.loads(body)
     job_id = payload.get("job_id")
     if job_id is None:
@@ -33,12 +38,14 @@ def process_message_body(body: str) -> None:
         job_service.process_job(job_id, result=result)
         logger.info("Completed job %s", job_id)
     except Exception as exc:
+        # Provider/API failures are part of the job result, so store them on the
+        # job and let the SQS message complete instead of retrying forever.
         logger.exception("Failed to process job %s", job_id)
         job_service.process_job(job_id, error=str(exc))
 
 
 def lambda_handler(event, context):
-    """Process messages delivered by an SQS Lambda event source mapping."""
+    """Process a Lambda SQS batch and report infrastructure-level failures."""
     batch_item_failures = []
     records = event.get("Records", [])
     logger.info("Received %s SQS record(s)", len(records))
@@ -47,6 +54,8 @@ def lambda_handler(event, context):
         try:
             process_message_body(record["body"])
         except Exception:
+            # Reaching this block means we could not reliably record a job-level
+            # failure, so ask Lambda/SQS to retry only this message.
             logger.exception("Failed to handle SQS record %s", record.get("messageId"))
             batch_item_failures.append({
                 "itemIdentifier": record["messageId"],
@@ -57,7 +66,7 @@ def lambda_handler(event, context):
 
 
 def poll_queue():
-    """Continuously poll SQS and process incoming job messages."""
+    """Continuously poll SQS for manual/local worker runs."""
     while True:
         messages = receive_messages(max_messages=5, wait_time_seconds=10)
         if not messages:
